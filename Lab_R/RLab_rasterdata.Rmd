@@ -1,0 +1,233 @@
+---
+title: "L3 Raster data"
+output: html_document
+date: '2024-01-22'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+(Install and) load geodata library for geographical data. The geodata package facilitates access to climate, elevation, soil, crop, species occurrence, and administrative boundary data, and is a successor of the getData() function from the raster package. More info see [https://github.com/rspatial/geodata]
+
+Install package terra and load it. Note geodata depends on terra. Version required: R (>= 3.5.0), terra (>= 1.6.41).
+
+```{r}
+#install.packages("geodata")
+#install.packages("terra")
+library(geodata)
+```
+
+use the worldclim_country() function of the geodata package (Hijmans et al. 2023) to download global temperature data from the WorldClim database. The function for WorldClim downloads monthly average climate data. 
+
+```{r}
+
+library(terra)
+r <- geodata::worldclim_country(country = "Spain", var = "tavg",
+                                res = 100, path = tempdir())
+
+# monthly average temperature in degree Celsius by specifying the country (country = "Spain"), the variable mean temperature (var = "tavg"), the resolution (res = 100), and the path where to download the data to as a temporary file (path = tempdir()). Figure 4.2 shows maps of the monthly average temperature in Spain.
+plot(r)
+```
+```{r}
+r
+```
+
+average over layers (months)
+```{r}
+r <- mean(r)
+plot(r)
+```
+
+remember the "world" sf data we used last lecture, we can get the extent of Spain.
+```{r}
+
+library(spData)
+library(sf)
+names(world)
+spain1 = world[world$name_long == "Spain", 1 ]
+
+plot(spain1)
+```
+get the extent and use crop() to remove the part of the raster that is outside the spatial extent 
+```{r}
+sextent <- terra::ext(spain1)
+r <- terra::crop(r, sextent)
+plot(r)
+```
+We can use the mask() function to convert all values outside the map to NA
+```{r}
+# Masking
+r <- terra::mask(r, vect(spain1))
+plot(r)
+```
+
+Aggregate groups of cells of a raster  to create a new raster with a lower resolution (i.e., larger cells)
+
+```{r}
+coarser <- terra::aggregate(r, fact = 20, fun = "mean", na.rm = TRUE)
+plot(coarser)
+```
+
+Read your own ".tif" or ".shp" files
+
+```{r}
+system.file("ex/elev.tif", package = "terra") # the directory of a file, here is an example using a file that is downloaded once you downloaded the package
+```
+
+
+```{r}
+fras =rast(system.file("ex/elev.tif", package = "terra"))
+fras
+plot(fras)
+
+```
+Reading a vector (here shapefile) file.
+```{r}
+fvec =vect(system.file("ex/lux.shp", package = "terra"))
+fvec
+plot(fvec)
+```
+
+Obtain the centroids of the division polygons, and their coordinates.
+```{r}
+centroids(fvec)
+plot(centroids(fvec))
+cp=crds(centroids(fvec))
+cp
+```
+Overlay the raster, shapefile, and centroids. 
+```{r}
+plot(fras)
+plot(fvec, add = TRUE)
+points(cp)
+```
+
+we can obtain the values of the raster at points using **extract()**. The first argument is a **raster** object, and the second argument a data frame with the points.
+```{r}
+cpdf <- as.data.frame(cp)
+valuesatpoints <- extract(fras, cpdf, xy =TRUE) #xy = True means to add the coordinates in the dataframe. 
+head(valuesatpoints) # print the first 5 rows of the table. 
+```
+
+Calculate average elevation of each polygon.
+```{r}
+pavg <- extract(fras, fvec, mean, na.rm = TRUE)$elevation
+pavg 
+```
+
+
+More about neighbourhood functions and kernels: A kernel is a small matrix (or array) of numbers that defines a weighted window used in operations like convolution. It is applied to each pixel (or cell) of an image or raster to compute a new value based on the values of neighboring pixels.
+```{r}
+ 
+
+# Create a sample raster
+# Define a 3x3 focal window
+focal_window <- matrix(1/9, nrow = 3, ncol = 3)
+
+# Apply a focal mean
+focal_mean_raster <- focal(fras, w = focal_window, fun = mean)
+
+# View the result
+plot(focal_mean_raster)
+```
+```{r}
+# Apply a convolution filter (e.g., Sobel filter for edge detection)
+sobel_filter <- matrix(c(-1, 0, 1, -2, 0, 2, -1, 0, 1), nrow = 3, ncol = 3)
+neighborhood_raster <- focal(fras, w = sobel_filter, fun = sum)
+
+# View the result
+plot(neighborhood_raster)
+```
+```{r}
+gaussian_kernel <- matrix(c(1, 2, 1, 2, 4, 2, 1, 2, 1) / 16, nrow = 3, ncol = 3)
+
+# Apply the kernel as a convolution filter (a neighborhood function)
+filtered_raster <- focal(fras, w = gaussian_kernel, fun = sum)
+```
+
+
+```{r}
+# View the result
+plot(filtered_raster)
+```
+
+ 
+(Advanced) Visualise using ggplot2 and tidyterra:
+```{r}
+#install.packages("ggplot2")
+#install.packages("tidyterra")
+library(ggplot2)
+library(tidyterra)
+fvec$avg =pavg
+ggplot(data= fvec) +geom_spatvector(aes(fill = avg)) +scale_fill_terrain_c()
+```
+
+More about making maps in R [https://www.paulamoraga.com/book-spatial/making-maps-with-r.html]
+
+
+
+# Exercise
+1. read the document of **worldclim** climate data download function in geodata [https://rdrr.io/cran/geodata/man/worldclim.html] and then download monthly averaged  total precipitation of Germany, at 1000 m resolution. How large is the dataset? 
+2. plot the first layer (the averaged precipitation of January)
+3. create a map for annual average total precipitation (average over months and), plot the map. 
+4. Download the administrative boundary of Germany with the first level of subdivition. (HINT: You can use **gadm** from **geodata** package: Ger = gadm("Germany", level =1, path = tempdir()))
+
+5. Only show the map to the extent of Germany (that is, only show the precipitation in Germany, outside Germany should be masked out).
+6. Show the map that include the annual precipitation, first level administrative boundary of Germany (level at Bundesland/state), and the centroid of each polygon. 
+
+7. Extract the annual averaged precipitation value at the centroid of each Bundesland (state).
+
+8. Calculate the mean annual averaged precipitation over each bundesland. 
+ 
+9. Use an Raster image (you can use the ones used in the lectures or one of your own)
+9.1. Perform a smoothing, describe your methods for smoothing and why you chose the method. 
+9.2. Implement sobel kernel convolusion in left-right and up-down directions. 
+
+
+
+```{r}
+library(geodata)
+library(terra)
+library(ggplot2)
+library(tidyterra)
+
+```
+
+```{r}
+prec <- geodata::worldclim_country(country = "Germany", var = "prec",
+                                res = 1000, path = tempdir())
+prec
+```
+```{r}
+plot(prec$DEU_wc2.1_30s_prec_1)
+```
+
+```{r}
+mprec = mean(prec)
+plot(mprec)
+Germany = world[world$name_long == "Germany", 1 ]
+#cmprec=crop(mprec,Germany)
+ 
+cprec <- terra::mask(mprec, vect(Germany))
+
+Ger = gadm("Germany", level =1, path = tempdir())
+cprec2 <- terra::mask(mprec, Ger)
+plot(cprec2)
+```
+```{r}
+
+plot(Ger)
+```
+
+```{r}
+cen=centroids(Ger)
+plot(cprec2)
+plot(Ger, add=T)
+plot(cen, add=T)
+```
+```{r}
+
+Ger$pavg <- extract(cprec2, Ger, mean, na.rm = TRUE)$mean
+ggplot(data= Ger) +geom_spatvector(aes(fill = pavg)) +scale_fill_terrain_c()
+```
